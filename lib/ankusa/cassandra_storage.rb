@@ -33,8 +33,8 @@ module Ankusa
     #
     def classnames
       @cassandra.get_range(:totals, {:start => '', :finish => '', :count => @max_classes}).inject([]) do |cs, key_slice|
-        cs << key_slice.key.to_sym
-      end
+        cs << key_slice[0].to_sym     
+      end 
     end
 
     def reset
@@ -100,14 +100,14 @@ module Ankusa
     # Fetch total word count for a given class and cache it
     #
     def get_total_word_count(klass)
-      @klass_word_counts[klass] = @cassandra.get(:totals, klass.to_s, "wordcount").values.last.to_f
+      @klass_word_counts[klass] = @cassandra.get(:totals, klass.to_s, "wordcount").to_f
     end
 
     #
     # Fetch total documents for a given class and cache it
     #
     def get_doc_count(klass)
-      @klass_doc_counts[klass] = @cassandra.get(:totals, klass.to_s, "doc_count").values.last.to_f
+      @klass_doc_counts[klass] = @cassandra.get(:totals, klass.to_s, "doc_count").to_f
     end
 
     #
@@ -115,27 +115,42 @@ module Ankusa
     # does not support atomic increment/decrement. Psh. HBase uses ZooKeeper to
     # implement atomic operations, ain't it special?
     #
-    def incr_word_count(klass, word, count)
+    def incr_word_count(klass, word, count)     
       # Only wants strings
       klass = klass.to_s
-      word  = word.to_s
-
-      prior_count = @cassandra.get(:classes, word, klass).values.last.to_i
-      new_count   = prior_count + count
+      word  = word.to_s     
+      
+      prior_count = @cassandra.get(:classes, word, klass)
+      if prior_count && !prior_count.is_a?(String) 
+        prior_count = prior_count.values.last
+      end
+      prior_count = 0 unless prior_count
+      prior_count = prior_count.to_i unless prior_count.is_a?(Fixnum)
+      new_count = prior_count + count
       @cassandra.insert(:classes, word, {klass => new_count.to_s})
 
       if (prior_count == 0 && count > 0)
         #
         # we've never seen this word before and we're not trying to unlearn it
-        #
-        vocab_size = @cassandra.get(:totals, klass, "vocabsize").values.last.to_i
+        #     
+        vocab_size = @cassandra.get(:totals, klass, "vocabsize")                 
+        if vocab_size && !vocab_size.is_a?(String)
+          vocab_size = vocab_size.values.last
+        end      
+        vocab_size = 0 unless vocab_size      
+        vocab_size = vocab_size.to_i unless vocab_size.is_a?(Fixnum)
         vocab_size += 1
         @cassandra.insert(:totals, klass, {"vocabsize" => vocab_size.to_s})
       elsif new_count == 0
         #
         # we've seen this word before but we're trying to unlearn it
         #
-        vocab_size = @cassandra.get(:totals, klass, "vocabsize").values.last.to_i
+        vocab_size = @cassandra.get(:totals, klass, "vocabsize")  
+        if vocab_size && !vocab_size.is_a?(String)
+          vocab_size = vocab_size.values.last
+        end 
+        vocab_size = 1 unless vocab_size   
+        vocab_size = vocab_size.to_i unless vocab_size.is_a?(Fixnum)  
         vocab_size -= 1
         @cassandra.insert(:totals, klass, {"vocabsize" => vocab_size.to_s})
       end
@@ -146,8 +161,13 @@ module Ankusa
     # Increment total word count for a given class by 'count'
     #
     def incr_total_word_count(klass, count)
-      klass = klass.to_s
-      wordcount = @cassandra.get(:totals, klass, "wordcount").values.last.to_i
+      klass = klass.to_s        
+      wordcount = @cassandra.get(:totals, klass, "wordcount")            
+      if wordcount && !wordcount.is_a?(String)
+         wordcount = wordcount.values.last
+      end  
+      wordcount = 0 unless wordcount  
+      wordcount = wordcount.to_i unless wordcount.is_a?(Fixnum)     
       wordcount += count
       @cassandra.insert(:totals, klass, {"wordcount" => wordcount.to_s})
       @klass_word_counts[klass.to_sym] = wordcount
@@ -157,8 +177,13 @@ module Ankusa
     # Increment total document count for a given class by 'count'
     #
     def incr_doc_count(klass, count)
-      klass = klass.to_s
-      doc_count = @cassandra.get(:totals, klass, "doc_count").values.last.to_i
+      klass = klass.to_s    
+      doc_count = @cassandra.get(:totals, klass, "doc_count")         
+      if doc_count && !doc_count.is_a?(String)   
+         doc_count = doc_count.values.last
+      end  
+      doc_count = 0 unless doc_count   
+      doc_count = doc_count.to_i unless doc_count.is_a?(Fixnum)
       doc_count += count
       @cassandra.insert(:totals, klass, {"doc_count" => doc_count.to_s})
       @klass_doc_counts[klass.to_sym] = doc_count
@@ -182,13 +207,11 @@ module Ankusa
     def get_summary(name)
       counts = {}
       @cassandra.get_range(:totals, {:start => '', :finish => '', :count => @max_classes}).each do |key_slice|
-        # keyslice is a clunky thrift object, map into a ruby hash
-        row = key_slice.columns.inject({}){|hsh, c| hsh[c.column.name] = c.column.value; hsh}
-        counts[key_slice.key.to_sym] = row[name].to_f
+        # keyslice is a clunky thrift object, map into a ruby hash    
+        row = key_slice[1]
+        counts[key_slice[0].to_sym] = row[name].to_f
       end
       counts
     end
-
   end
-
 end
