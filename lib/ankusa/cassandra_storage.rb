@@ -1,4 +1,4 @@
-require 'cassandra/0.7'
+require 'cassandra/0.8'
 
 #
 # At the moment you'll have to do:
